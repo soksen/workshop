@@ -107,7 +107,7 @@ def generate_EMs_from_normalized_AA_PDBs(workingDir):
     structureBlurrer = StructureBlurrer()
     emDirectory = workingDir+"/simulated/EM"
     pdbNormalizedDir = workingDir+ "/simulated/PDB_normalized"
-    numFiles = numOfFilesSubdir(emDirectory)
+    numFiles = numOfFilesSubdir(pdbNormalizedDir)
     currFileNum = 0
 
     for aaDirName in os.listdir(pdbNormalizedDir):
