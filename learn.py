@@ -1,6 +1,5 @@
 import os
 import sys
-import math
 import random
 from sklearn import svm
 import csv
@@ -11,22 +10,20 @@ from scipy import ndimage
 aAList = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLU', 'GLN', 'GLY', 'HIS', 'ILE', 'LEU',
           'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL']
 
-def learn(workingDir):
-    '''
+def learn(workingDir, generateCSVFile = True):
+    """
     Learn after preparations
     :param workingDir: working directory, where protein_pdbs directory is found, e.g. D:/university/biology
     :return: nothing
-    '''
-
-    generate_csv_file(workingDir)
-
-    #read the CSV file and generate the training set
-
-    test_ARG(workingDir)
+    """
+    if generateCSVFile:
+        generate_csv_file(workingDir)
     test_all_categories(workingDir)
+    test_all_AAs_separately(workingDir)
 
 
-def test_ARG(workingDir):
+def test_AA(workingDir, AA_name):
+    print 'Testing AA: {0}'.format(AA_name)
     csvFilePath = workingDir+"/simulated/training_set.csv"
     featureList = []
     labelList = []
@@ -39,22 +36,17 @@ def test_ARG(workingDir):
     with open(csvFilePath, "r") as csvFile:
         csvFileReader = csv.reader(csvFile, delimiter=',', quotechar='"')
         for emDataRow in csvFileReader:
-            if (emDataRow[0] == "ARG" and random.random() > 0.4) or (random.random() > 0.96):
+            if (emDataRow[0] == AA_name and random.random() < 0.6) or random.random() < 0.05:
                featureList.append(emDataRow[1:])
-               #labelList.append(emDataRow[0])
 
-               if emDataRow[0] == "ARG":
+               if emDataRow[0] == AA_name:
                    labelList.append(1)
                    totalArgTraining += 1
                else:
                    labelList.append(0)
                    totalNonArgTraining += 1
             else:
-                if emDataRow[0] == "ARG":
-                    testingSet.append(emDataRow)
-                else:
-                    if random.random() > 0.97:
-                        testingSet.append(emDataRow)
+                testingSet.append(emDataRow)
 
     X = np.array(featureList)
     y = labelList
@@ -73,30 +65,30 @@ def test_ARG(workingDir):
 
     for testingRow in testingSet:
         prediction = clf.predict([testingRow[1:]])[0]
-        #print "AA is {0}, predicted {1}".format(testingRow[0],prediction)
-        if testingRow[0] == "ARG":
+        if testingRow[0] == AA_name:
             totalArgTesting += 1
         else:
             totalNonArgTesting += 1
-        if testingRow[0] == "ARG" and prediction==1:
+        if testingRow[0] == AA_name and prediction==1:
             rightPositive += 1
-        if testingRow[0] != "ARG" and prediction==1:
+        if testingRow[0] != AA_name and prediction==1:
             falsePositive += 1
 
     falsePositivePercent = falsePositive/totalNonArgTesting
     rightPositivePercent = rightPositive/totalArgTesting
 
-    print "ARG in training set: {0}".format(totalArgTraining)
-    print "Non ARG in training set: {0}".format(totalNonArgTraining)
+    print "{0} in training set: {1}".format(AA_name, int(totalArgTraining))
+    print "Non {0} in training set: {1}".format(AA_name, int(totalNonArgTraining))
 
-    print "ARG in testing set: {0}".format(totalArgTesting)
-    print "Non ARG in testing set: {0}".format(totalNonArgTesting)
+    print "{0} in testing set: {1}".format(AA_name, int(totalArgTesting))
+    print "Non {0} in testing set: {1}".format(AA_name, int(totalNonArgTesting))
 
-    print "False Positive Percent: {0:8.8f}".format(falsePositivePercent)
-    print "Right Positive Percent: {0:8.8f}".format(rightPositivePercent)
+    print "False Positive Percent: {0:4.2f}%".format(100.*falsePositivePercent)
+    print "Right Positive Percent: {0:4.2f}%".format(100.*rightPositivePercent)
 
 
 def test_all_categories(workingDir):
+    print '\nTesting all categories at once:'
     csvFilePath = workingDir+"/simulated/training_set.csv"
     featureList = []
     labelList = []
@@ -127,15 +119,17 @@ def test_all_categories(workingDir):
         prediction = clf.predict([testingRow[1:]])[0]
         if prediction == testingRow[0]:
             num_success += 1
-    print 'Success in {} of {} ({}%)'.format(num_success, len(testingSet), num_success*100./len(testingSet) )
+    print 'Success in {} of {} ({:4.2f}%)'.format(num_success, len(testingSet), num_success*100./len(testingSet) )
 
 
-def features(em):
+def features(emMap):
+    em = emMap.copy().normalise().getMap()
     em[ em < 1 ] = 0 # threshold. do not allow negative/small values
-    zoomed_em = ndimage.interpolation.zoom(em, 0.2)
-    zoomed_em[zoomed_em < 0] = 0 # threshold again (this is necessary, otherwise negatives sneak in)
-    com = np.array(ndimage.measurements.center_of_mass( zoomed_em ))
-    return [avg_dist_power(zoomed_em, com, exp) for exp in xrange(1,8)]
+    em = ndimage.interpolation.zoom(em, 0.2)
+    em[em < 0] = 0 # threshold again (this is necessary, otherwise negatives sneak in)
+    return list(em.flatten())
+    #com = np.array(ndimage.measurements.center_of_mass( em ))
+    #return [avg_dist_power(em, com, exp) for exp in xrange(1,8)]# + list(zoomed_em.flatten())
 
 
 def avg_dist_power(em, ref_point, exp):
@@ -149,11 +143,11 @@ def avg_dist_power(em, ref_point, exp):
 
 
 def findMaxEMMapDimensions(workingDir):
-    '''
+    """
     Find the maximal EM map dimensions
     :param workingDir:
     :return:
-    '''
+    """
     print 'Finding the maximal EM map dimensions...'
     emDirectory = workingDir+"/simulated/EM"
     maxEmMapSize = [0,0,0]
@@ -183,7 +177,7 @@ def generate_csv_file(workingDir):
     numFiles = numOfFilesSubdir(emDirectory)
     currFileNum = 0
     #generate CSV file of training set
-    print 'Generate CSV file of training set...'
+    print 'Generate CSV file of features...'
     csv_file_path = workingDir+"/simulated/training_set.csv"
     with open(csv_file_path, "w") as csvFile:
         csvFileWriter = csv.writer(csvFile, delimiter=',',quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -193,11 +187,16 @@ def generate_csv_file(workingDir):
                 for emfileName in os.listdir(emAaDir):
                     emFilePath = "{0}/{1}".format(emAaDir,emfileName)
                     emMap = MapParser.readMRC(emFilePath)
-                    emMapList = emMap.getMap()
 
-                    csvFileWriter.writerow([aaDirName] + features(emMapList))
+                    csvFileWriter.writerow([aaDirName] + features(emMap))
 
                     currFileNum += 1
                     sys.stdout.write('\r{:4}/{:4} ({:5.4}%), current file: {}'.format(currFileNum, numFiles, currFileNum*100./numFiles, emFilePath))# comma to suppress the newline
                     sys.stdout.flush()
     print '\n',
+
+def test_all_AAs_separately(workingDir):
+    print '\nTesting all AAs separately...\n'
+    for AA in aAList:
+        test_AA(workingDir, AA)
+        print '\n'

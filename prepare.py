@@ -1,6 +1,7 @@
 import re
 import os
 import sys
+import random
 from TEMPy.StructureParser import PDBParser
 from TEMPy.StructureBlurrer import StructureBlurrer
 
@@ -8,27 +9,29 @@ aAList = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLU', 'GLN', 'GLY', 'HIS', 'ILE', 
               'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL']
 
 def prepare(workingDir):
-    '''
+    """
     Prepare amino acids files
     :param workingDir: working directory, where protein_pdbs directory is found, e.g. D:/university/biology
     :return: nothing
-    '''
+    """
     if workingDir[-1] == '/':
         workingDir = workingDir[:-1]
+
+    print 'Generating AA PDBs out of protein PDBS...'
     generate_AA_PDBs_from_protein_PDBs(workingDir)
+    print 'Generating extra AA PDBs...'
+    print 'Skip'#generate_extra_AA_PDBs(workingDir)
     print 'Generating normalized AA PDBs out of AA PDBs...'
     generate_normalized_AA_PDBs_from_AA_PDBs(workingDir)
-    print 'generate EMs out of normalized PDBs'
+    print 'Generating EMs out of normalized PDBs...'
     generate_EMs_from_normalized_AA_PDBs(workingDir)
-
 
 
 def generate_AA_PDBs_from_protein_PDBs(workingDir):
     curAaSeq = 0
-    curAaCode = 'UNKNOWN'
     numFiles = len(os.listdir(workingDir+'/protein_pdbs'))
     currFileNum = 0
-    print 'Generating AA PDBs out of protein PDBS...'
+
     for proteinFileName in os.listdir(workingDir+'/protein_pdbs'):
         proteinFullFileName = "{0}/protein_pdbs/{1}".format(workingDir, proteinFileName)
         if os.path.isfile(proteinFullFileName):
@@ -43,7 +46,6 @@ def generate_AA_PDBs_from_protein_PDBs(workingDir):
                     if line[:4]=='ATOM':
                         matchColumns = re.match( r'(\S+)(\s+)(\S+)(\s+)(\S+)(\s+)(\S+)(\s+)(\S+)(\s+)(\S+)', line, re.I)
                         prevAaSeq = curAaSeq
-                        prevAaCode = curAaCode
                         curAaSeq = matchColumns.group(11)
                         curAaCode = matchColumns.group(7)
 
@@ -120,10 +122,10 @@ def generate_EMs_from_normalized_AA_PDBs(workingDir):
                 pdbFileNameMatch = re.match( r'(\S+)\.pdb', pdbFileName, re.I)
                 pdbFileNameWoExtension = pdbFileNameMatch.group(1)
                 pdbFilePath = "{0}/{1}".format(pdbPath,pdbFileName)
+
                 aaStruture=PDBParser.read_PDB_file(pdbFileNameWoExtension,pdbFilePath)
                 #aaSimMap = structureBlurrer.gaussian_blur(aaStruture, 2)
                 aaSimMap = structureBlurrer.gaussian_blur_box(aaStruture, 2, 50, 50, 50)
-
                 aAEmFileName = "{0}/{1}.map".format(emAaDir,pdbFileNameWoExtension)
                 aaSimMap.write_to_MRC_file(aAEmFileName)
                 currFileNum += 1
@@ -133,3 +135,49 @@ def generate_EMs_from_normalized_AA_PDBs(workingDir):
 
 def numOfFilesSubdir(path):
     return sum([len(files) for r, d, files in os.walk(path)])
+
+
+def generate_extra_AA_PDBs(workingDir):
+    """
+    Create extra AA PDBs from the existing PDBs, by filling up each AA directory
+    to 100 instances. New PDBs are created by randomly selecting a file from
+    the existing list, randomly rotating it around a random axis, and writing
+    the result to a new file.
+    """
+    min_num_of_pdbs_per_aa = 100
+
+    # first count how much work we have to do (compute totalNumFilesNeeded)
+    pdbNormalizedDir = workingDir+"/simulated/PDB"
+    totalNumFilesDone = 0
+    totalNumFilesNeeded = 0
+    for curAA in aAList:
+        numFiles = len(os.listdir(pdbNormalizedDir + '/' + curAA))
+        if numFiles < min_num_of_pdbs_per_aa:
+            totalNumFilesNeeded += min_num_of_pdbs_per_aa - numFiles
+
+    # now create the files
+    for curAA in aAList: # loop on all AAs
+        current_dir = pdbNormalizedDir + '/' + curAA
+        dirFilesList = os.listdir(current_dir)
+        numFiles = len(dirFilesList)
+        while numFiles < min_num_of_pdbs_per_aa: # until we have enough files
+            numFiles += 1
+            totalNumFilesDone += 1
+
+            # get the file
+            pdbFileName = random.choice(dirFilesList)
+            pdbFileNameMatch = re.match( r'(\S+)\.pdb', pdbFileName, re.I)
+            pdbFileNameWoExtension = pdbFileNameMatch.group(1)
+            pdbFilePath = "{0}/{1}".format(current_dir,pdbFileName)
+            aaStruture = PDBParser.read_PDB_file(pdbFileNameWoExtension, pdbFilePath)
+
+            # randomly rotate and write the result
+            randomAxis = [random.random() for i in xrange(3)]
+            randomAngle = random.random()*360 # (angle is in degrees)
+            aaStruture.rotate_by_axis_angle(randomAxis[0], randomAxis[1], randomAxis[2], randomAngle)
+            aaStruture.write_to_PDB("{0}/{1}-extra{2}".format(current_dir, pdbFileNameWoExtension, numFiles))
+
+            # show progress
+            sys.stdout.write('\r{:4}/{:4} ({:5.4}%), current AA: {}'.format(totalNumFilesDone, totalNumFilesNeeded, totalNumFilesDone*100./totalNumFilesNeeded, curAA))
+            sys.stdout.flush()
+    print '\n',
